@@ -1,39 +1,68 @@
-from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api._errors import (
-    TranscriptsDisabled,
-    NoTranscriptFound,
-    VideoUnavailable
-)
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+API_URL = "https://api.freetranscriptapi.com/v1/transcript"
 
 
 def get_transcript(video_id):
     try:
-        api = YouTubeTranscriptApi()
+        api_key = os.getenv("TRANSCRIPT_API_KEY")
 
-        transcript_list = api.fetch(
-            video_id,
-            languages=["en"]
+        if not api_key:
+            raise Exception(
+                "TRANSCRIPT_API_KEY is missing from .env"
+            )
+
+        response = requests.get(
+            API_URL,
+            params={
+                "video_url": video_id,
+                "lang": "en"
+            },
+            headers={
+                "Authorization": f"Bearer {api_key}"
+            },
+            timeout=30
         )
 
+        response.raise_for_status()
+
+        data = response.json()
+
+        transcript_lines = data.get("transcript", [])
+
+        if not transcript_lines:
+            raise Exception(
+                "No transcript was found for this video."
+            )
+
         transcript = " ".join(
-            snippet.text for snippet in transcript_list
+            item["text"]
+            for item in transcript_lines
         )
 
         return transcript
 
-    except TranscriptsDisabled:
+    except requests.exceptions.HTTPError as e:
+        try:
+            error_data = response.json()
+            message = error_data.get("error", {}).get(
+                "message",
+                str(e)
+            )
+        except Exception:
+            message = str(e)
+
         raise Exception(
-            "Transcripts are disabled for this YouTube video."
+            f"Transcript API error: {message}"
         )
 
-    except NoTranscriptFound:
+    except requests.exceptions.RequestException as e:
         raise Exception(
-            "No English transcript was found for this video."
-        )
-
-    except VideoUnavailable:
-        raise Exception(
-            "This YouTube video is unavailable or cannot be accessed."
+            f"Transcript API request failed: {str(e)}"
         )
 
     except Exception as e:
